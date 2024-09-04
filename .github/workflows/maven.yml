@@ -4,25 +4,69 @@ name: Build and Deploy to Dev
 
 on:
   push:
-    branches: [ release/deploy ]
+    branches: [ master, release/deploy ]
   workflow_dispatch:
     
 jobs:
-  buildAndDeploy:
+  build:
     runs-on: ubuntu-latest
-    environment: Dev
-
+    env:
+      PLATFORM_USERNAME: ${{ secrets.PLATFORM_USERNAME }}
+      PLATFORM_PASSWORD: ${{ secrets.PLATFORM_PASSWORD }}
+    
     steps:
+    
     - name: Checkout repository
       uses: actions/checkout@v3
-
+    
     - name: Cache Depenedencies
       uses: actions/setup-java@v3
-      with: 
+      with:
         java-version: '11'
         distribution: 'adopt'
         cache: maven
-
+    
     - name: Build with maven
       run: mvn -B clean package -s settings.xml
+    
+    - name: Stamp artifact file name with commit hash
+      run: |
+        artifactName1=$(ls target/*.jar | head -1)
+        commitHash=$(git rev-parse --short "$GITHUB_SHA")
+        artifactName2=$(ls target/*.jar | head -1 | sed "s/.jar/-$commitHash.jar/g")
+        mv $artifactName1 $artifactName2
+    
+    - name: Upload artifact 
+      uses: actions/upload-artifact@Dev
+      with:
+          name: artifacts
+          path: target/*.jar
+    
+     
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      PLATFORM_USERNAME: ${{ secrets.PLATFORM_USERNAME }}
+      PLATFORM_PASSWORD: ${{ secrets.PLATFORM_PASSWORD }}
+
+    steps:    
+    
+    - name: Checkout repository
+      uses: actions/checkout@v3
+    
+    - uses: actions/cache@v3
+      with:
+        path: ~/.m2/repository
+        key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+        restore-keys: |
+          ${{ runner.os }}-maven-
+    
+    - uses: actions/download-artifact@Dev
+      with:
+        name: artifacts
+    
+    - name: Deploy to Dev
+      run: mvn deploy -DmuleDeploy -DskipTests  --file pom.xml -s settings.xml
          
+    
