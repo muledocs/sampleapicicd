@@ -10,7 +10,7 @@ on:
       environment:
         description: 'Deployment environment'
         required: true
-        default: 'Dev'
+        default: 'SIT'
         type: choice
         options:
           - 'Dev'
