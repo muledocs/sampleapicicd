@@ -1,0 +1,28 @@
+# This workflow will build a MuleSoft project and deploy to CloudHub
+
+name: Build and Deploy to Dev
+
+on:
+  push:
+    branches: [ release/deploy ]
+  workflow_dispatch:
+    
+jobs:
+  buildAndDeploy:
+    runs-on: ubuntu-latest
+    environment: Dev
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Cache Depenedencies
+      uses: actions/setup-java@v3
+      with: 
+        java-version: '11'
+        distribution: 'adopt'
+        cache: maven
+
+    - name: Build with maven
+      run: mvn -B clean package -s settings.xml
+         
