@@ -8,9 +8,14 @@ on:
   workflow_dispatch:
      inputs:
       environment:
-        description: 'Deployment environment (e.g., Dev, SIT, UAT)'
+        description: 'Deployment environment'
         required: true
         default: 'Dev'
+        type: choice
+        options:
+          - 'Dev'
+          - 'SIT'
+          - 'UAT'
     
 jobs:
   build:
@@ -81,19 +86,28 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
-
-    - uses: actions/cache@v3
-      with:
-        path: ~/.m2/repository
-        key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
-        restore-keys: |
-          ${{ runner.os }}-maven-
     
     - uses: actions/download-artifact@v3
       with:
         name: artifacts
 
     - name: Deploy to SIT
+      run: mvn deploy -DmuleDeploy -DskipTests --file pom.xml -s settings.xml
+
+
+  deploy-uat:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'UAT'
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+    
+    - uses: actions/download-artifact@v3
+      with:
+        name: artifacts
+
+    - name: Deploy to UAT
       run: mvn deploy -DmuleDeploy -DskipTests --file pom.xml -s settings.xml
          
     
