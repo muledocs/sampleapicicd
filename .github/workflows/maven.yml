@@ -6,6 +6,11 @@ on:
   push:
     branches: [ master, release/deploy ]
   workflow_dispatch:
+     inputs:
+      environment:
+        description: 'Deployment environment (e.g., Dev, SIT, UAT)'
+        required: true
+        default: 'Dev'
     
 jobs:
   build:
