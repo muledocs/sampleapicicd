@@ -1,78 +1,84 @@
-name: Build and Deploy
+name: MuleSoft Build and Deploy Pipeline
 
 on:
   push:
     branches:
-      - master
-      - release/deploy
+      - release/deploy  # Automatic deployments for Dev on push to release/deploy
   workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment (SIT, UAT, Production)'
+        required: true
+        default: 'SIT'  # Default can be adjusted based on your preference
 
 jobs:
-  setup:
+  build:
     runs-on: ubuntu-latest
     outputs:
-      environment: ${{ steps.set-env.outputs.environment }}
-    
-    steps:
-    - name: Determine Environment
-      id: set-env
-      run: |
-        if [ "${{ github.ref }}" == "refs/heads/master" ]; then
-          echo "::set-output name=environment::Production"
-        else
-          echo "::set-output name=environment::Dev"
-        fi
-
-  build:
-    needs: setup
-    runs-on: ubuntu-latest
-    env:
-      PLATFORM_USERNAME: ${{ secrets.PLATFORM_USERNAME }}
-      PLATFORM_PASSWORD: ${{ secrets.PLATFORM_PASSWORD }}
-    
+      artifact-path: ${{ steps.stamp.outputs.artifact-path }}
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
-    
+
     - name: Setup Java
       uses: actions/setup-java@v3
       with:
         java-version: '11'
         distribution: 'adopt'
         cache: maven
-    
+
     - name: Build with Maven
       run: mvn -B clean package -s settings.xml
-    
+
     - name: Stamp artifact file name with commit hash
+      id: stamp
       run: |
-        artifactName1=$(ls target/*.jar | head -1)
+        artifactName=$(ls target/*.jar | head -1)
         commitHash=$(git rev-parse --short "$GITHUB_SHA")
-        artifactName2=$(ls target/*.jar | head -1 | sed "s/.jar/-$commitHash.jar/g")
-        mv $artifactName1 $artifactName2
-    
+        stampedArtifactName="${artifactName%.jar}-$commitHash.jar"
+        mv "$artifactName" "$stampedArtifactName"
+        echo "::set-output name=artifact-path::$stampedArtifactName"
+
     - name: Upload artifact 
       uses: actions/upload-artifact@v2
       with:
           name: artifacts
-          path: target/*.jar
+          path: ${{ steps.stamp.outputs.artifact-path }}
 
   deploy:
-    needs: [setup, build]
+    needs: build
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'Dev')
     runs-on: ubuntu-latest
-    env:
-      PLATFORM_USERNAME: ${{ secrets.PLATFORM_USERNAME }}
-      PLATFORM_PASSWORD: ${{ secrets.PLATFORM_PASSWORD }}
-      ENVIRONMENT: ${{ needs.setup.outputs.environment }}
-    
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
-    
-    - uses: actions/download-artifact@v2
+    - name: Download artifact
+      uses: actions/download-artifact@v2
       with:
         name: artifacts
-    
-    - name: Deploy to CloudHub
+
+    - name: Deploy to Dev
+      run: mvn deploy -DmuleDeploy -DskipTests --file pom.xml -s settings.xml
+      env:
+        PLATFORM_USERNAME: ${{ secrets.PLATFORM_USERNAME }}
+        PLATFORM_PASSWORD: ${{ secrets.PLATFORM_PASSWORD }}
+
+  deploy-manual:
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment != 'Dev'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        env: [SIT, UAT, Production]
+    continue-on-error: true
+    steps:
+    - name: Download artifact
+      uses: actions/download-artifact@v2
+      with:
+        name: artifacts
+
+    - name: Deploy to Environment
+      if: matrix.env == github.event.inputs.environment
       run: |
-        mvn deploy -DmuleDeploy -DskipTests -Denv=${{ env.ENVIRONMENT }} --file pom.xml -s settings.xml
+        mvn deploy -DmuleDeploy -DskipTests -Denv=${{ matrix.env }} --file pom.xml -s settings.xml
+      env:
+        PLATFORM_USERNAME: ${{ secrets.PLATFORM_USERNAME }}
+        PLATFORM_PASSWORD: ${{ secrets.PLATFORM_PASSWORD }}
