@@ -10,7 +10,7 @@ on:
       environment:
         description: 'Deployment environment'
         required: true
-        default: 'SIT'
+        default: 'Dev'
         type: choice
         options:
           - 'Dev'
@@ -86,28 +86,23 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
-    
     - uses: actions/download-artifact@v3
       with:
         name: artifacts
-
     - name: Deploy to SIT
       run: mvn deploy -DmuleDeploy -DskipTests --file pom.xml -s settings.xml
 
 
   deploy-uat:
     needs: build
-    runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'UAT'
+    runs-on: ubuntu-latest
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
-    
-    - uses: actions/download-artifact@v3
-      with:
-        name: artifacts
-
-    - name: Deploy to UAT
-      run: mvn deploy -DmuleDeploy -DskipTests --file pom.xml -s settings.xml
+      - uses: actions/checkout@v3
+      - uses: actions/download-artifact@v3
+        with:
+          name: artifacts
+      - name: Deploy to UAT
+        run: mvn deploy -DmuleDeploy -DskipTests --file pom.xml -s settings.xml
          
     
