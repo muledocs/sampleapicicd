@@ -1,4 +1,4 @@
-name: MuleSoft Build and Deploy Pipeline
+name: Build and Deploy
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Deployment environment (SIT, UAT, Production)'
+        description: 'Deploy environment (SIT, UAT, Production)'
         required: true
         default: 'SIT'  # Default can be adjusted based on your preference
 
@@ -15,7 +15,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     outputs:
-      artifact-path: ${{ steps.stamp.outputs.artifact-path }}
+      artifact-path: ${{ steps.build_artifact.outputs.artifact-path }}
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
@@ -31,54 +31,77 @@ jobs:
       run: mvn -B clean package -s settings.xml
 
     - name: Stamp artifact file name with commit hash
-      id: stamp
       run: |
-        artifactName=$(ls target/*.jar | head -1)
+        artifactName1=$(ls target/*.jar | head -1)
         commitHash=$(git rev-parse --short "$GITHUB_SHA")
-        stampedArtifactName="${artifactName%.jar}-$commitHash.jar"
-        mv "$artifactName" "$stampedArtifactName"
-        echo "::set-output name=artifact-path::$stampedArtifactName"
+        artifactName2=$(ls target/*.jar | head -1 | sed "s/.jar/-$commitHash.jar/g")
+        mv $artifactName1 $artifactName2
+      id: build_artifact
+      env:
+        ARTIFACT_PATH: target/*.jar
 
     - name: Upload artifact 
       uses: actions/upload-artifact@v2
       with:
           name: artifacts
-          path: ${{ steps.stamp.outputs.artifact-path }}
+          path: ${{ steps.build_artifact.outputs.artifact-path }}
 
   deploy:
     needs: build
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'Dev')
     runs-on: ubuntu-latest
-    steps:
-    - name: Download artifact
-      uses: actions/download-artifact@v2
+    if: github.event_name == 'push' || github.event.inputs.environment == 'Dev'
+    steps:    
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - uses: actions/download-artifact@v2
       with:
         name: artifacts
 
     - name: Deploy to Dev
       run: mvn deploy -DmuleDeploy -DskipTests --file pom.xml -s settings.xml
-      env:
-        PLATFORM_USERNAME: ${{ secrets.PLATFORM_USERNAME }}
-        PLATFORM_PASSWORD: ${{ secrets.PLATFORM_PASSWORD }}
 
-  deploy-manual:
+  deploy-sit:
     needs: build
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment != 'Dev'
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        env: [SIT, UAT, Production]
-    continue-on-error: true
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'SIT'
     steps:
-    - name: Download artifact
-      uses: actions/download-artifact@v2
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - uses: actions/download-artifact@v2
       with:
         name: artifacts
 
-    - name: Deploy to Environment
-      if: matrix.env == github.event.inputs.environment
-      run: |
-        mvn deploy -DmuleDeploy -DskipTests -Denv=${{ matrix.env }} --file pom.xml -s settings.xml
-      env:
-        PLATFORM_USERNAME: ${{ secrets.PLATFORM_USERNAME }}
-        PLATFORM_PASSWORD: ${{ secrets.PLATFORM_PASSWORD }}
+    - name: Deploy to SIT
+      run: mvn deploy -DmuleDeploy -DskipTests --file pom.xml -s settings.xml
+
+  deploy-uat:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'UAT'
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - uses: actions/download-artifact@v2
+      with:
+        name: artifacts
+
+    - name: Deploy to UAT
+      run: mvn deploy -DmuleDeploy -DskipTests --file pom.xml -s settings.xml
+
+  deploy-production:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'Production'
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - uses: actions/download-artifact@v2
+      with:
+        name: artifacts
+
+    - name: Deploy to Production
+      run: mvn deploy -DmuleDeploy -DskipTests --file pom.xml -s settings.xml
