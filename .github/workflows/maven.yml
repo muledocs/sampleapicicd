@@ -1,65 +1,73 @@
-name: Build and Deploy
+# This workflow will build a MuleSoft project and deploy to CloudHub
+
+name: Build and Deploy MuleSoft CICD
 
 on:
   push:
-    branches:
-      - release/deploy  # Automatic deployments for Dev on push to release/deploy
+    branches: [ master, release/deploy ]
   workflow_dispatch:
-    inputs:
-      environment:
-        description: 'Deploy environment (SIT, UAT, Production)'
-        required: true
-        default: 'SIT'  # Default can be adjusted based on your preference
-
+    
 jobs:
   build:
     runs-on: ubuntu-latest
-    outputs:
-      artifact-path: ${{ steps.build_artifact.outputs.artifact-path }}
+    env:
+      PLATFORM_USERNAME: ${{ secrets.PLATFORM_USERNAME }}
+      PLATFORM_PASSWORD: ${{ secrets.PLATFORM_PASSWORD }}
+    
     steps:
+    
     - name: Checkout repository
       uses: actions/checkout@v3
-
-    - name: Setup Java
+    
+    - name: Cache Depenedencies
       uses: actions/setup-java@v3
       with:
         java-version: '11'
         distribution: 'adopt'
         cache: maven
-
-    - name: Build with Maven
+    
+    - name: Build with maven
       run: mvn -B clean package -s settings.xml
-
+    
     - name: Stamp artifact file name with commit hash
       run: |
         artifactName1=$(ls target/*.jar | head -1)
         commitHash=$(git rev-parse --short "$GITHUB_SHA")
         artifactName2=$(ls target/*.jar | head -1 | sed "s/.jar/-$commitHash.jar/g")
         mv $artifactName1 $artifactName2
-      id: build_artifact
-      env:
-        ARTIFACT_PATH: target/*.jar
-
+    
     - name: Upload artifact 
       uses: actions/upload-artifact@v2
       with:
           name: artifacts
-          path: ${{ steps.build_artifact.outputs.artifact-path }}
-
-  deploy:
+          path: target/*.jar
+    
+     
+  deploy-dev:
     needs: build
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || github.event.inputs.environment == 'Dev'
+    env:
+      PLATFORM_USERNAME: ${{ secrets.PLATFORM_USERNAME }}
+      PLATFORM_PASSWORD: ${{ secrets.PLATFORM_PASSWORD }}
+
     steps:    
+    
     - name: Checkout repository
       uses: actions/checkout@v3
-
+    
+    - uses: actions/cache@v3
+      with:
+        path: ~/.m2/repository
+        key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+        restore-keys: |
+          ${{ runner.os }}-maven-
+    
     - uses: actions/download-artifact@v2
       with:
         name: artifacts
-
+    
     - name: Deploy to Dev
-      run: mvn deploy -DmuleDeploy -DskipTests --file pom.xml -s settings.xml
+      run: mvn deploy -DmuleDeploy -DskipTests  --file pom.xml -s settings.xml
 
   deploy-sit:
     needs: build
@@ -69,39 +77,18 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v3
 
+    - uses: actions/cache@v3
+      with:
+        path: ~/.m2/repository
+        key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+        restore-keys: |
+          ${{ runner.os }}-maven-
+    
     - uses: actions/download-artifact@v2
       with:
         name: artifacts
 
     - name: Deploy to SIT
       run: mvn deploy -DmuleDeploy -DskipTests --file pom.xml -s settings.xml
-
-  deploy-uat:
-    needs: build
-    runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'UAT'
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
-
-    - uses: actions/download-artifact@v2
-      with:
-        name: artifacts
-
-    - name: Deploy to UAT
-      run: mvn deploy -DmuleDeploy -DskipTests --file pom.xml -s settings.xml
-
-  deploy-production:
-    needs: build
-    runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'Production'
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
-
-    - uses: actions/download-artifact@v2
-      with:
-        name: artifacts
-
-    - name: Deploy to Production
-      run: mvn deploy -DmuleDeploy -DskipTests --file pom.xml -s settings.xml
+         
+    
