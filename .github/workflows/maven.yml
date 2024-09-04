@@ -1,32 +1,47 @@
-# This workflow will build a MuleSoft project and deploy to CloudHub
-
-name: Build and Deploy to Dev
+name: Build and Deploy
 
 on:
   push:
-    branches: [ master, release/deploy ]
+    branches:
+      - master
+      - release/deploy
   workflow_dispatch:
-    
+
 jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.set-env.outputs.environment }}
+    
+    steps:
+    - name: Determine Environment
+      id: set-env
+      run: |
+        if [ "${{ github.ref }}" == "refs/heads/master" ]; then
+          echo "::set-output name=environment::Production"
+        else
+          echo "::set-output name=environment::Dev"
+        fi
+
   build:
+    needs: setup
     runs-on: ubuntu-latest
     env:
       PLATFORM_USERNAME: ${{ secrets.PLATFORM_USERNAME }}
       PLATFORM_PASSWORD: ${{ secrets.PLATFORM_PASSWORD }}
     
     steps:
-    
     - name: Checkout repository
       uses: actions/checkout@v3
     
-    - name: Cache Depenedencies
+    - name: Setup Java
       uses: actions/setup-java@v3
       with:
         java-version: '11'
         distribution: 'adopt'
         cache: maven
     
-    - name: Build with maven
+    - name: Build with Maven
       run: mvn -B clean package -s settings.xml
     
     - name: Stamp artifact file name with commit hash
@@ -41,32 +56,23 @@ jobs:
       with:
           name: artifacts
           path: target/*.jar
-    
-     
+
   deploy:
-    needs: build
+    needs: [setup, build]
     runs-on: ubuntu-latest
     env:
       PLATFORM_USERNAME: ${{ secrets.PLATFORM_USERNAME }}
       PLATFORM_PASSWORD: ${{ secrets.PLATFORM_PASSWORD }}
-
-    steps:    
+      ENVIRONMENT: ${{ needs.setup.outputs.environment }}
     
+    steps:
     - name: Checkout repository
       uses: actions/checkout@v3
-    
-    - uses: actions/cache@v3
-      with:
-        path: ~/.m2/repository
-        key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
-        restore-keys: |
-          ${{ runner.os }}-maven-
     
     - uses: actions/download-artifact@v2
       with:
         name: artifacts
     
-    - name: Deploy to Dev
-      run: mvn deploy -DmuleDeploy -DskipTests  --file pom.xml -s settings.xml
-         
-    
+    - name: Deploy to CloudHub
+      run: |
+        mvn deploy -DmuleDeploy -DskipTests -Denv=${{ env.ENVIRONMENT }} --file pom.xml -s settings.xml
