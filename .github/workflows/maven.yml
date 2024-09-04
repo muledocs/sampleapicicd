@@ -37,7 +37,7 @@ jobs:
         mv $artifactName1 $artifactName2
     
     - name: Upload artifact 
-      uses: actions/upload-artifact@release/deploy
+      uses: actions/upload-artifact@master
       with:
           name: artifacts
           path: target/*.jar
@@ -62,7 +62,7 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-maven-
     
-    - uses: actions/download-artifact@release/deploy
+    - uses: actions/download-artifact@master
       with:
         name: artifacts
     
