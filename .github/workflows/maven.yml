@@ -1,0 +1,69 @@
+name: Build and Deploy MuleSoft CICD
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'Dev'
+        type: choice
+        options:
+          - 'Dev'
+          - 'SIT'
+          - 'UAT'
+          - 'Production'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      artifact-path: ${{ steps.artifact_path.outputs.path }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Cache Dependencies
+        uses: actions/setup-java@v3
+        with:
+          java-version: '11'
+          distribution: 'adopt'
+          cache: maven
+
+      - name: Build with maven
+        run: mvn -B clean package -s settings.xml
+
+      - name: Stamp artifact file name with commit hash
+        run: |
+          artifactName1=$(ls target/*.jar | head -1)
+          commitHash=$(git rev-parse --short "$GITHUB_SHA")
+          artifactName2=$(ls target/*.jar | head -1 | sed "s/.jar/-$commitHash.jar/g")
+          mv $artifactName1 $artifactName2
+          echo "::set-output name=path::$artifactName2"
+
+      - name: Upload artifact 
+        uses: actions/upload-artifact@v3
+        with:
+          name: artifacts
+          path: ${{ steps.artifact_path.outputs.path }}
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    environment: ${{ github.event.inputs.environment }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Download artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: artifacts
+
+      - name: Deploy to Environment
+        run: mvn deploy -DmuleDeploy -DskipTests --file pom.xml -s settings.xml
+        env:
+          PLATFORM_USERNAME: ${{ secrets.PLATFORM_USERNAME }}
+          PLATFORM_PASSWORD: ${{ secrets.PLATFORM_PASSWORD }}
+
