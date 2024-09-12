@@ -1,10 +1,10 @@
-# This workflow will build a MuleSoft project and deploy to CloudHub
-
 name: Build and Deploy MuleSoft CICD
 
 on:
   push:
-    branches: [ master, release/deploy ]
+    branches:
+      - release/deploy  # Triggers on push to release/deploy for Dev, SIT, UAT
+      - master          # Triggers on push to master for Production
   workflow_dispatch:
      inputs:
       environment:
@@ -16,7 +16,8 @@ on:
           - 'Dev'
           - 'SIT'
           - 'UAT'
-    
+          - 'Production'   # Added Production to manually trigger deployments
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -25,11 +26,10 @@ jobs:
       PLATFORM_PASSWORD: ${{ secrets.PLATFORM_PASSWORD }}
     
     steps:
-    
     - name: Checkout repository
       uses: actions/checkout@v3
     
-    - name: Cache Depenedencies
+    - name: Cache Dependencies
       uses: actions/setup-java@v3
       with:
         java-version: '11'
@@ -50,39 +50,24 @@ jobs:
       uses: actions/upload-artifact@v3
       with:
           name: artifacts
-          path: target/*.jar
-    
-     
+
   deploy-dev:
     needs: build
+    if: github.ref == 'refs/heads/release/deploy'
     runs-on: ubuntu-latest
-    env:
-      PLATFORM_USERNAME: ${{ secrets.PLATFORM_USERNAME }}
-      PLATFORM_PASSWORD: ${{ secrets.PLATFORM_PASSWORD }}
-
-    steps:    
-    
+    steps:
     - name: Checkout repository
       uses: actions/checkout@v3
-    
-    - uses: actions/cache@v3
-      with:
-        path: ~/.m2/repository
-        key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
-        restore-keys: |
-          ${{ runner.os }}-maven-
-    
     - uses: actions/download-artifact@v3
       with:
         name: artifacts
-    
     - name: Deploy to Dev
       run: mvn deploy -DmuleDeploy -DskipTests  --file pom.xml -s settings.xml
 
   deploy-sit:
-    needs: build
-    runs-on: ubuntu-latest
+    needs: [build, deploy-dev]
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'SIT'
+    runs-on: ubuntu-latest
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
@@ -92,17 +77,26 @@ jobs:
     - name: Deploy to SIT
       run: mvn deploy -DmuleDeploy -DskipTests --file pom.xml -s settings.xml
 
-
   deploy-uat:
-    needs: build
+    needs: [build, deploy-sit]
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'UAT'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/download-artifact@v3
-        with:
-          name: artifacts
-      - name: Deploy to UAT
-        run: mvn deploy -DmuleDeploy -DskipTests --file pom.xml -s settings.xml
-         
-    
+    - uses: actions/checkout@v3
+    - uses: actions/download-artifact@v3
+      with:
+        name: artifacts
+    - name: Deploy to UAT
+      run: mvn deploy -DmuleDeploy -DskipTests --file pom.xml -s settings.xml
+
+  deploy-prod:
+    needs: build
+    if: github.ref == 'refs/heads/master' && github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'Production'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions/download-artifact@v3
+      with:
+        name: artifacts
+    - name: Deploy to Production
+      run: mvn deploy -DmuleDeploy -DskipTests --file pom.xml -s settings.xml

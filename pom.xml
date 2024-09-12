@@ -43,7 +43,6 @@
 						<properties>
 							<http.port>8081</http.port>						
 						</properties>
-						<!-- test -->
 					</cloudHubDeployment>
 				</configuration>
 			</plugin>
