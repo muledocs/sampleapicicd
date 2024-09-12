@@ -50,6 +50,7 @@ jobs:
       uses: actions/upload-artifact@v3
       with:
           name: artifacts
+          path: target/*.jar
 
   deploy-dev:
     needs: build
