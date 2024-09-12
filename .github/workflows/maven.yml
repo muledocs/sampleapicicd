@@ -1,12 +1,8 @@
 name: Build and Deploy MuleSoft CICD
 
 on:
-  push:
-    branches:
-      - release/deploy  # Triggers on push to release/deploy for Dev, SIT, UAT
-      - master          # Triggers on push to master for Production
   workflow_dispatch:
-     inputs:
+    inputs:
       environment:
         description: 'Deployment environment'
         required: true
@@ -16,88 +12,58 @@ on:
           - 'Dev'
           - 'SIT'
           - 'UAT'
-          - 'Production'   # Added Production to manually trigger deployments
+          - 'Production'
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      PLATFORM_USERNAME: ${{ secrets.PLATFORM_USERNAME }}
-      PLATFORM_PASSWORD: ${{ secrets.PLATFORM_PASSWORD }}
-    
+    outputs:
+      artifact-path: ${{ steps.artifact_path.outputs.path }}
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
-    
-    - name: Cache Dependencies
-      uses: actions/setup-java@v3
-      with:
-        java-version: '11'
-        distribution: 'adopt'
-        cache: maven
-    
-    - name: Build with maven
-      run: mvn -B clean package -s settings.xml
-    
-    - name: Stamp artifact file name with commit hash
-      run: |
-        artifactName1=$(ls target/*.jar | head -1)
-        commitHash=$(git rev-parse --short "$GITHUB_SHA")
-        artifactName2=$(ls target/*.jar | head -1 | sed "s/.jar/-$commitHash.jar/g")
-        mv $artifactName1 $artifactName2
-    
-    - name: Upload artifact 
-      uses: actions/upload-artifact@v3
-      with:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Cache Dependencies
+        uses: actions/setup-java@v3
+        with:
+          java-version: '11'
+          distribution: 'adopt'
+          cache: maven
+
+      - name: Build with maven
+        run: mvn -B clean package -s settings.xml
+
+      - name: Stamp artifact file name with commit hash
+        run: |
+          artifactName1=$(ls target/*.jar | head -1)
+          commitHash=$(git rev-parse --short "$GITHUB_SHA")
+          artifactName2=$(ls target/*.jar | head -1 | sed "s/.jar/-$commitHash.jar/g")
+          mv $artifactName1 $artifactName2
+          echo "::set-output name=path::$artifactName2"
+
+      - name: Upload artifact 
+        uses: actions/upload-artifact@v3
+        with:
           name: artifacts
-          path: target/*.jar
+          path: ${{ steps.artifact_path.outputs.path }}
 
-  deploy-dev:
+  deploy:
     needs: build
-    if: github.ref == 'refs/heads/release/deploy'
     runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    environment: ${{ github.event.inputs.environment }}
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
-    - uses: actions/download-artifact@v3
-      with:
-        name: artifacts
-    - name: Deploy to Dev
-      run: mvn deploy -DmuleDeploy -DskipTests  --file pom.xml -s settings.xml
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-  deploy-sit:
-    needs: [build, deploy-dev]
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'SIT'
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
-    - uses: actions/download-artifact@v3
-      with:
-        name: artifacts
-    - name: Deploy to SIT
-      run: mvn deploy -DmuleDeploy -DskipTests --file pom.xml -s settings.xml
+      - name: Download artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: artifacts
 
-  deploy-uat:
-    needs: [build, deploy-sit]
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'UAT'
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - uses: actions/download-artifact@v3
-      with:
-        name: artifacts
-    - name: Deploy to UAT
-      run: mvn deploy -DmuleDeploy -DskipTests --file pom.xml -s settings.xml
+      - name: Deploy to Environment
+        run: mvn deploy -DmuleDeploy -DskipTests --file pom.xml -s settings.xml
+        env:
+          PLATFORM_USERNAME: ${{ secrets.PLATFORM_USERNAME }}
+          PLATFORM_PASSWORD: ${{ secrets.PLATFORM_PASSWORD }}
 
-  deploy-prod:
-    needs: build
-    if: github.ref == 'refs/heads/master' && github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'Production'
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - uses: actions/download-artifact@v3
-      with:
-        name: artifacts
-    - name: Deploy to Production
-      run: mvn deploy -DmuleDeploy -DskipTests --file pom.xml -s settings.xml
