@@ -60,6 +60,7 @@ jobs:
         uses: actions/download-artifact@v3
         with:
           name: artifacts
+          path: target/*.jar
 
       - name: Deploy to Environment
         run: mvn deploy -DmuleDeploy -DskipTests --file pom.xml -s settings.xml
