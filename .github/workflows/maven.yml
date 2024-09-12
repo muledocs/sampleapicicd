@@ -45,7 +45,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: artifacts
-          path: ${{ steps.artifact_path.outputs.path }}
+          path: target/*.jar
 
   deploy:
     needs: build
@@ -60,7 +60,6 @@ jobs:
         uses: actions/download-artifact@v3
         with:
           name: artifacts
-          path: target/*.jar
 
       - name: Deploy to Environment
         run: mvn deploy -DmuleDeploy -DskipTests --file pom.xml -s settings.xml
